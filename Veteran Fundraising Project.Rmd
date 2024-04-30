@@ -1,0 +1,499 @@
+---
+title: "Donation Project"
+output: html_document
+date: "2024-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(car)
+library(ggplot2)
+library(randomForest)
+library(e1071)
+library(caret)
+library(ltm)
+library(tidyverse)
+library(corrplot)
+library(reshape2)
+```
+
+
+```{r}
+##### DATA IMPORT AND VARIABLE FACTORING #####
+fundraising <- read.csv("./fundraising.csv")
+fundraising.test <- read.csv("./future_fundraising.csv")
+
+#colSums(is.na(fundraising))
+#fundraising <- na.omit(fundraising)
+#View(fundraising)
+#str(fundraising)
+
+fundraising$zipconvert2 = as.factor(fundraising$zipconvert2)
+fundraising$zipconvert3 = as.factor(fundraising$zipconvert3)
+fundraising$zipconvert4 = as.factor(fundraising$zipconvert4)
+fundraising$zipconvert5 = as.factor(fundraising$zipconvert5)
+fundraising$homeowner = as.factor(fundraising$homeowner)
+fundraising$female = as.factor(fundraising$female)
+fundraising$target = factor(fundraising$target, 
+                             levels = c("Donor", "No Donor"),
+                             labels = c("Donor", "NoDonor"))
+
+fundraising.test$zipconvert2 = as.factor(fundraising.test$zipconvert2)
+fundraising.test$zipconvert3 = as.factor(fundraising.test$zipconvert3)
+fundraising.test$zipconvert4 = as.factor(fundraising.test$zipconvert4)
+fundraising.test$zipconvert5 = as.factor(fundraising.test$zipconvert5)
+fundraising.test$homeowner = as.factor(fundraising.test$homeowner)
+fundraising.test$female = as.factor(fundraising.test$female)
+str(fundraising)
+
+#class_counts <- table(fundraising$target)
+#class_counts
+```
+
+
+```{r}
+##### MULTICOLLINEARITY #####
+# both numeric and factor columns
+numeric_data <- fundraising[, sapply(fundraising, is.numeric)]
+factor_data <- fundraising[, sapply(fundraising, is.factor)]
+
+# dummy variables
+dummy_vars <- model.matrix(~ . - 1, data = factor_data)
+dummy_vars <- as.data.frame(dummy_vars)
+dummy_vars <- dplyr::select(dummy_vars, -zipconvert2No) #zipconvert2No not necessary because binary just like the rest
+
+combined_data <- cbind(numeric_data, dummy_vars)
+
+# Correlation matrix
+cor_matrix <- cor(combined_data, use = "pairwise.complete.obs") 
+
+corrplot(cor_matrix, method = "color",
+         type = "upper",  # Only upper triangle
+         order = "hclust",  # Clustering of similar items
+         tl.col = "black",
+         tl.srt = 45,  # Rotation
+         addCoef.col = "black",
+         diag = FALSE)
+```
+
+
+
+```{r}
+##### EXPLORATORY ANALYSIS #####
+
+bar_plot <- ggplot(fundraising, aes(x = target)) +
+            geom_bar(fill = "lightgreen", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4, color = "black") + 
+            labs(title = "Distribution of target", x = "target", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14), 
+              plot.title = element_text(size = 16, face = "bold"),  
+              axis.title = element_text(size = 14),  
+              axis.text = element_text(size = 12)  
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = num_child)) +
+            geom_bar(fill = "lightgreen", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4, color = "black") + 
+            labs(title = "Distribution of num_child", x = "num_child", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14), 
+              plot.title = element_text(size = 16, face = "bold"), 
+              axis.title = element_text(size = 14),  
+              axis.text = element_text(size = 12) 
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = income)) +
+            geom_bar(fill = "lightgreen", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4, color = "black") + 
+            labs(title = "Distribution of income", x = "income", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14), 
+              plot.title = element_text(size = 16, face = "bold"), 
+              axis.title = element_text(size = 14),  
+              axis.text = element_text(size = 12)  
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes_string(x = "num_prom")) +
+      geom_histogram(binwidth = 10, fill = "lightgreen", color = "black") +
+      labs(title = paste("Distribution of num_prom"), x = "num_prom", y = "Frequency") +
+      theme_minimal() +
+      theme(
+        text = element_text(size = 14), 
+        plot.title = element_text(size = 16, face = "bold"),  
+        axis.title = element_text(size = 14),  
+        axis.text = element_text(size = 12) 
+      )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = wealth)) +
+            geom_bar(fill = "lightgreen", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4, color = "black") + 
+            labs(title = "Distribution of wealth", x = "wealth", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14), 
+              plot.title = element_text(size = 16, face = "bold"),  
+              axis.title = element_text(size = 14),  
+              axis.text = element_text(size = 12)  
+            )
+print(bar_plot)
+
+
+bar_plot <- ggplot(fundraising, aes_string(x = "months_since_donate")) +
+      geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
+      labs(title = paste("Distribution of months_since_donate"), x = "months_since_donate", y = "Frequency") +
+      theme_minimal() +
+      theme(
+        text = element_text(size = 14), 
+        plot.title = element_text(size = 16, face = "bold"),  
+        axis.title = element_text(size = 14), 
+        axis.text = element_text(size = 12)  
+      )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = num_child, fill = target)) +
+            geom_bar(position = "dodge", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, position = position_dodge(width = 0.9), size = 4, color = "black") +
+            labs(title = "Distribution of num_child Grouped by target", x = "num_child", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14),
+              plot.title = element_text(size = 16, face = "bold"),
+              axis.title = element_text(size = 14),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(size = 12)  
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = num_child, fill = target)) +
+            geom_bar(position = "dodge", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, position = position_dodge(width = 0.9), size = 4, color = "black") +
+            labs(title = "Distribution of num_child Grouped by target", x = "num_child", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14),
+              plot.title = element_text(size = 16, face = "bold"),
+              axis.title = element_text(size = 14),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(size = 12)  
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = female, fill = target)) +
+            geom_bar(position = "dodge", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, position = position_dodge(width = 0.9), size = 4, color = "black") +
+            labs(title = "Distribution of female Grouped by target", x = "female", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14),
+              plot.title = element_text(size = 16, face = "bold"),
+              axis.title = element_text(size = 14),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(size = 12)  
+            )
+print(bar_plot)
+
+bar_plot <- ggplot(fundraising, aes(x = homeowner, fill = target)) +
+            geom_bar(position = "dodge", color = "black") +
+            geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, position = position_dodge(width = 0.9), size = 4, color = "black") +
+            labs(title = "Distribution of homeowner Grouped by target", x = "homeowner", y = "Frequency") +
+            theme_minimal() +
+            theme(
+              text = element_text(size = 14),
+              plot.title = element_text(size = 16, face = "bold"),
+              axis.title = element_text(size = 14),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(size = 12) 
+            )
+print(bar_plot)
+
+ggplot(fundraising, aes(x = target, y = income)) +
+  geom_boxplot() +
+  labs(x = "target", y = "income", title = "Boxplot of income by target")
+
+ggplot(fundraising, aes(x = target, y = num_prom)) +
+  geom_boxplot() +
+  labs(x = "target", y = "num_prom", title = "Boxplot of num_prom by target")
+
+ggplot(fundraising, aes(x = target, y = months_since_donate)) +
+  geom_boxplot() +
+  labs(x = "target", y = "months_since_donate", title = "Boxplot of months_since_donate by target")
+```
+
+
+```{r}
+##### LOGISTIC REGRESSION #####
+set.seed(12345)
+index = sample(1:nrow(fundraising), 0.8*nrow(fundraising))
+fund.train = fundraising[index,]
+fund.val = fundraising[-index,]
+
+log <- glm(target ~zipconvert2+zipconvert3+zipconvert4+zipconvert5+homeowner+num_child
+           +income+female+wealth+med_fam_inc+num_prom+lifetime_gifts+largest_gift+last_gift+months_since_donate+time_lag, 
+           family = "binomial", data = fund.train)
+summary(log)
+logfitted <- predict(log, newdata=fund.val, type='response')
+logfitted <- ifelse(logfitted > 0.5, "Donor", "NoDonor")
+
+# Confusion Matrix
+confusionMatrix <- table(Predicted = logfitted, Actual = fund.val$target)
+print(confusionMatrix)
+
+accuracy <- sum(diag(confusionMatrix)) / sum(confusionMatrix)
+precision <- confusionMatrix["Donor", "Donor"] / sum(confusionMatrix["Donor", ])
+sensitivity <- confusionMatrix["Donor", "Donor"] / sum(confusionMatrix[, "Donor"])
+specificity <- confusionMatrix["NoDonor", "NoDonor"] / sum(confusionMatrix["NoDonor", ])
+
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("Precision:", precision, "\n")
+
+
+# P-value chart
+model_summary <- summary(log)
+p_values_df <- data.frame(
+  Term = rownames(model_summary$coefficients),
+  PValue = model_summary$coefficients[, "Pr(>|z|)"]
+)
+
+p_values_df$Index <- seq_along(p_values_df$Term)
+
+ggplot(p_values_df, aes(x = PValue, y = reorder(Term, PValue))) +
+  geom_point() +
+  geom_vline(xintercept = 0.05, linetype = "dashed", color = "red", size = 1) + 
+  theme_minimal() + 
+  labs(x = "P-Value", y = "Variables") + 
+  ggtitle("P-Values of Model Coefficients") +
+  theme(
+    text = element_text(size = 14), 
+    plot.title = element_text(size = 16, face = "bold"), 
+    axis.title = element_text(size = 14),  
+    axis.text = element_text(size = 12) 
+  ) 
+```
+
+
+```{r}
+##### RANDOM FOREST - FULL #####
+set.seed(12345)
+fitControl <- trainControl(method = "cv",
+                           number = 10,
+                           search = "grid",
+                           savePredictions = "final",
+                           summaryFunction = defaultSummary, 
+                           classProbs = TRUE
+                           )
+
+tuningGrid <- expand.grid(
+  .mtry = c(2, round(sqrt(ncol(fundraising) - 1)), round(ncol(fundraising)/3)),
+  .splitrule = c("gini", "extratrees"), 
+  .min.node.size = c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55)  
+)
+
+
+tuned_rf_model <- train(
+  target ~ zipconvert2+zipconvert3+zipconvert4+zipconvert5+homeowner+num_child+income+female
+  +wealth+med_fam_inc+num_prom+lifetime_gifts+largest_gift+last_gift+months_since_donate+time_lag, 
+  data = fundraising, 
+  method = "ranger",
+  metric = "Accuracy",
+  tuneGrid = tuningGrid,
+  trControl = fitControl,
+  importance = 'impurity',
+  num.trees = 1000
+)
+
+print(tuned_rf_model$bestTune)
+print(tuned_rf_model$results)
+
+pred <- tuned_rf_model$pred
+conf_matrix <- confusionMatrix(pred$pred, pred$obs)
+print(conf_matrix)
+
+# Var Importance
+
+final_model <- tuned_rf_model$finalModel
+
+if ("ranger" %in% class(final_model)) {
+  var_importance <- final_model$variable.importance
+}
+
+print(var_importance)
+
+importance_df <- data.frame(
+  Feature = names(var_importance),
+  Importance = var_importance,
+  stringsAsFactors = FALSE
+)
+
+importance_df <- importance_df[order(-importance_df$Importance), ]
+
+importance_plot <- ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Feature Importance",
+       x = "Features",
+       y = "Importance") +
+  coord_flip()  
+
+print(importance_plot)
+```
+
+
+```{r}
+##### RANDOM FOREST - REDUCED #####
+set.seed(12345)
+fitControl <- trainControl(method = "cv",
+                           number = 10,
+                           search = "grid",
+                           savePredictions = "final",
+                           summaryFunction = defaultSummary, 
+                           classProbs = TRUE
+                           )
+
+tuningGrid <- expand.grid(
+  .mtry = c(2, round(sqrt(ncol(fundraising) - 1)), round(ncol(fundraising)/3)),
+  .splitrule = c("gini", "extratrees"), 
+  .min.node.size = c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55) 
+)
+
+tuned_rf_model <- train(
+  target ~ homeowner+num_child+income+female+wealth+med_fam_inc+num_prom+lifetime_gifts
+  +largest_gift+last_gift+months_since_donate+time_lag, 
+  data = fundraising, 
+  method = "ranger",
+  metric = "Accuracy",
+  tuneGrid = tuningGrid,
+  trControl = fitControl,
+  importance = 'impurity',
+  num.trees = 1000
+)
+
+print(tuned_rf_model$bestTune)
+print(tuned_rf_model$results)
+
+pred <- tuned_rf_model$pred
+conf_matrix2 <- confusionMatrix(pred$pred, pred$obs)
+print(conf_matrix2)
+
+# Var Importance
+
+final_model <- tuned_rf_model$finalModel
+
+if ("ranger" %in% class(final_model)) {
+  var_importance <- final_model$variable.importance
+}
+print(var_importance)
+
+importance_df <- data.frame(
+  Feature = names(var_importance),
+  Importance = var_importance,
+  stringsAsFactors = FALSE
+)
+
+importance_df <- importance_df[order(-importance_df$Importance), ]
+
+importance_plot <- ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Feature Importance",
+       x = "Features",
+       y = "Importance") +
+  coord_flip()  
+
+print(importance_plot)
+```
+
+```{r}
+# Create a vector of scores
+acc <- c(accuracy, conf_matrix$overall['Accuracy'], conf_matrix2$overall['Accuracy'])
+sens <- c(sensitivity, conf_matrix$byClass['Sensitivity'], conf_matrix2$byClass['Sensitivity'])
+spec <- c(specificity, conf_matrix$byClass['Specificity'], conf_matrix2$byClass['Specificity'])
+
+# Convert to a data frame
+score_data <- data.frame(
+  Accuracy = acc,
+  Sensitivity = sens,
+  Specificity = spec,
+  Category = c("Logistics Regression", "Random Forest - Full", "Random Forest - Reduced") 
+)
+
+score_data$Category <- factor(score_data$Category, levels = c("Random Forest - Reduced", "Random Forest - Full", "Logistics Regression"))
+# Reshape wide to long
+score_data_long <- melt(score_data, id.vars = 'Category', variable.name = 'Metric', value.name = 'Value')
+
+ggplot(score_data_long, aes(x = Category, y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +
+  coord_flip() +
+  geom_text(aes(label = sprintf("%.4f", Value)), position = position_dodge(width = 0.7), hjust = 2) +
+  labs(title = "Model Performance by Category", x = "Category", y = "Value") +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme_minimal() +
+  theme(text = element_text(size = 14),
+        plot.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.position = "bottom"
+        )
+```
+
+
+```{r}
+##### TEST PREDICTIONS #####
+test_predictions <- predict(tuned_rf_model, newdata = fundraising.test)
+predictions_df <- data.frame(value = test_predictions)
+
+predictions_df$value <- gsub("NoDonor", "No Donor", predictions_df$value)
+write_csv(predictions_df, "predictions.csv")
+```
+
+
+```{r}
+##### CUT-ANALYSIS #####
+probabilities <- predict(tuned_rf_model, newdata = fundraising.test, type = "prob")[, "Donor"]
+
+cutoff_analysis <- data.frame(
+  cutoff = numeric(),
+  total_cost = numeric(),
+  total_benefit = numeric(),
+  net_benefit = numeric()
+)
+
+mailing_cost_per_person = 0.68  
+average_donation = 13         
+response_rate = 5.1 / 100     
+
+for (cutoff in seq(0, 1, by = 0.01)) {
+  predicted_labels <- ifelse(probabilities > cutoff, "Donor", "NoDonor")
+  predicted_labels <- factor(predicted_labels, levels = c("NoDonor", "Donor"))
+  
+  num_targeted_individuals <- sum(predicted_labels == "Donor")
+  expected_donors <- num_targeted_individuals * response_rate 
+  total_cost <- num_targeted_individuals * mailing_cost_per_person
+  total_benefit <- expected_donors * average_donation
+  
+  net_benefit <- total_benefit - total_cost
+  
+  cutoff_analysis <- rbind(cutoff_analysis, data.frame(
+    cutoff = cutoff, 
+    total_cost = total_cost,
+    total_benefit = total_benefit,
+    net_benefit = net_benefit
+  ))
+}
+
+optimal_cutoff <- cutoff_analysis[cutoff_analysis$net_benefit == max(cutoff_analysis$net_benefit), "cutoff"]
+optimal_cutoff <- optimal_cutoff[1]
+
+print(paste("Optimal Cutoff: ", optimal_cutoff))
+```
